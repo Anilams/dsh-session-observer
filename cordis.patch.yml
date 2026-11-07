@@ -1,0 +1,15 @@
+# 一条 insert 行：把本包挂进任何安装它的 profile。
+# id 是树内唯一标签（随便起），name 是 Node 模块说明符。
+- insert:
+    - id: session-observer
+      name: dsh-session-observer
+      config:
+        enabled: true
+        # free = 只跑规则，旁路模型完全不起（零成本，装了就敢开着）
+        # smart = 额外让旁路模型每轮说一句话（首次打开视图时由用户选择）
+        mode: free
+        intervalMs: 25000
+        minNewEvents: 3
+        maxTokens: 400
+        reasoningEffort: "off"
+        timeoutMs: 15000
