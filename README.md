@@ -300,7 +300,8 @@ for (const event of events) {
 
 | version | contents | status |
 |---|---|---|
-| **0.5.0** | the v9 layout is now the real view: turn sections, forked roads, side panel, host-token theming; host emits `tool_mix` / `turn_stats` / per-node `turn` | this release |
+| **0.5.1** | fix: the accent no longer reads `--dsw-alias-brand-primary` — that token resolves to the neutral scale on the real host, so the view would have gone black-and-white; it now uses a link colour with a blue fallback, and every label sits on host ink | this release |
+| 0.5.0 | the v9 layout is now the real view: turn sections, forked roads, side panel, host-token theming; host emits `tool_mix` / `turn_stats` / per-node `turn` | this release |
 | 0.4.2 | transport: fall back to a self-mounted `webServer` route when native RPC throws, so CLI and desktop both connect; events folded into `beats`; plain-language verdicts | this release |
 | 0.3.1 | verdict view: three-layer stuck detection, density band, decision spine | released |
 | v1 | promote the fold into a real `dsh-session-projection` unit so the client reads the projection instead of polling RPC | planned |

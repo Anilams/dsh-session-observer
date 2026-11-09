@@ -84,7 +84,10 @@ window.__ModuleLoader__.load({
   --svo-line-2:var(--dsw-alias-border-l3);
   --svo-surface:var(--dsw-alias-bg-base);
   --svo-surface-2:var(--dsw-alias-bg-layer-2);
-  --svo-blue:var(--dsw-alias-brand-primary,#006eff);
+  /* 强调色只用于装饰（下划线、标记、淡底）。
+     **不读 --dsw-alias-brand-primary**：宿主那个令牌实测指向中性色阶
+     （bluish-1000 / bluish-50），拿它当蓝用会在真机上变成黑白。 */
+  --svo-blue:var(--dsw-alias-link-text,#2f6fe4);
   --svo-run:#22c55e;
   --svo-mile:#38bdf8;
   --svo-fork:#f59e0b;
@@ -175,7 +178,7 @@ window.__ModuleLoader__.load({
 .svo-turn.on .svo-arrow{transform:rotate(90deg);color:var(--svo-blue)}
 .svo-turn.on .svo-thead{background:color-mix(in srgb,var(--svo-blue) 7%,transparent);
   box-shadow:inset 2px 0 0 var(--svo-blue)}
-.svo-turn.on .svo-tnum,.svo-turn.on .svo-tname{color:var(--svo-blue)}
+.svo-turn.on .svo-tnum,.svo-turn.on .svo-tname{color:var(--svo-ink)}
 
 /* 决策行 */
 .svo-rows{position:relative;padding:2px 0 6px}
@@ -198,7 +201,7 @@ window.__ModuleLoader__.load({
 .svo-rsub{font-size:11px;line-height:18px;color:var(--svo-ink-2);margin-left:44px}
 .svo-go{margin-left:auto;align-self:center;padding-right:4px;opacity:0;
   color:var(--svo-ink-3);transition:opacity .12s var(--ds-ease-in-out)}
-.svo-row.can:hover .svo-go{opacity:1;color:var(--svo-blue)}
+.svo-row.can:hover .svo-go{opacity:1;color:var(--svo-ink)}
 
 .svo-tag{display:inline-flex;align-items:center;gap:3px;height:16px;padding:0 5px;
   margin-left:6px;border-radius:4px;corner-shape:round;font-size:9px;font-weight:500;
@@ -212,7 +215,7 @@ window.__ModuleLoader__.load({
   border-radius:4px;corner-shape:round;font-size:11px;max-width:100%}
 .svo-opt span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .svo-opt b{font-size:9px;font-weight:600;opacity:.75;flex:none}
-.svo-opt.take{background:color-mix(in srgb,var(--svo-blue) 10%,transparent);color:var(--svo-blue)}
+.svo-opt.take{background:color-mix(in srgb,var(--svo-blue) 12%,transparent);color:var(--svo-ink)}
 .svo-opt.drop{background:var(--dsw-alias-bg-layer-2);color:var(--svo-ink-2);
   text-decoration:line-through;text-decoration-color:var(--svo-ink-3)}
 .svo-opt.drop b{text-decoration:none;color:var(--svo-ink-3)}

@@ -1,6 +1,6 @@
 {
   "name": "dsh-session-observer",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "type": "module",
   "description": "会话视图「观察」：把事件流压成一句判决——我现在需要插手吗。零模型依赖，默认不花钱。",
