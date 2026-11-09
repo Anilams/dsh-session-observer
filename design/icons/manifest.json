@@ -1,0 +1,116 @@
+{
+ "source": "unifi.ui.com 控制台渲染后 DOM 实抓，每个是单元素图标（非模块合并）",
+ "count": 22,
+ "icons": [
+  {
+   "name": "activity",
+   "viewBox": "0 0 24 24",
+   "from": "013-link__bnl29xSM_link-dark__bnl29xSM.svg"
+  },
+  {
+   "name": "clock",
+   "viewBox": "0 0 24 24",
+   "from": "032-css-network-1oteowz_Icon-module_icon__2a0I8_Icon-module_icon.svg"
+  },
+  {
+   "name": "warn",
+   "viewBox": "0 0 24 24",
+   "from": "026-css-network-1a9qzdq.svg"
+  },
+  {
+   "name": "info",
+   "viewBox": "0 0 20 20",
+   "from": "033-css-network-lz4o13.svg"
+  },
+  {
+   "name": "close",
+   "viewBox": "0 0 24 24",
+   "from": "024-css-network-1qi2ma2.svg"
+  },
+  {
+   "name": "gauge",
+   "viewBox": "0 0 24 24",
+   "from": "014-link__bnl29xSM_link-dark__bnl29xSM.svg"
+  },
+  {
+   "name": "register",
+   "viewBox": "0 0 24 24",
+   "from": "020-link__bnl29xSM_link-dark__bnl29xSM.svg"
+  },
+  {
+   "name": "nodes",
+   "viewBox": "0 0 24 24",
+   "from": "009-link__bnl29xSM_link-dark__bnl29xSM.svg"
+  },
+  {
+   "name": "ring",
+   "viewBox": "0 0 24 24",
+   "from": "010-link__bnl29xSM_link-dark__bnl29xSM.svg"
+  },
+  {
+   "name": "screen",
+   "viewBox": "0 0 24 24",
+   "from": "031-css-network-i5mp19.svg"
+  },
+  {
+   "name": "clipboard",
+   "viewBox": "0 0 24 24",
+   "from": "017-link__bnl29xSM_link-dark__bnl29xSM.svg"
+  },
+  {
+   "name": "chev-right",
+   "viewBox": "0 0 20 20",
+   "from": "043-Icon-module_wrapper__1FD2T_INTERNET_HEALTH_BAR_PANEL_OPENER_.svg"
+  },
+  {
+   "name": "chev-down",
+   "viewBox": "0 0 20 20",
+   "from": "015-toggleDividerArrow__bnl29xSM_toggleDividerArrow-dark__bnl29x.svg"
+  },
+  {
+   "name": "people",
+   "viewBox": "0 0 20 20",
+   "from": "021-link__bnl29xSM_link-dark__bnl29xSM.svg"
+  },
+  {
+   "name": "gear",
+   "viewBox": "0 0 24 24",
+   "from": "016-link__bnl29xSM_link-dark__bnl29xSM.svg"
+  },
+  {
+   "name": "arrow-up",
+   "viewBox": "0 0 21 20",
+   "from": "035-css-network-gehoc0.svg"
+  },
+  {
+   "name": "arrow-down",
+   "viewBox": "0 0 20 20",
+   "from": "034-css-network-gehoc0.svg"
+  },
+  {
+   "name": "box",
+   "viewBox": "0 0 20 20",
+   "from": "042-_object_SVGAnimatedString_.svg"
+  },
+  {
+   "name": "check",
+   "viewBox": "0 0 20 20",
+   "from": "040-inputBox__7OIcyUwF.svg"
+  },
+  {
+   "name": "bell",
+   "viewBox": "0 0 24 24",
+   "from": "019-link__bnl29xSM_link-dark__bnl29xSM.svg"
+  },
+  {
+   "name": "filter",
+   "viewBox": "0 0 24 24",
+   "from": "018-link__bnl29xSM_link-dark__bnl29xSM.svg"
+  },
+  {
+   "name": "loader",
+   "viewBox": "0 0 20 20",
+   "from": "036-css-network-lz4o13.svg"
+  }
+ ]
+}

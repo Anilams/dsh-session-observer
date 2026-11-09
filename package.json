@@ -1,9 +1,9 @@
 {
   "name": "dsh-session-observer",
-  "version": "0.3.1",
+  "version": "0.4.2",
   "private": true,
   "type": "module",
-  "description": "A conversation view for DeepSeek Harness that answers one question: do I need to step in? Rule-based by default, zero model calls.",
+  "description": "会话视图「观察」：把事件流压成一句判决——我现在需要插手吗。零模型依赖，默认不花钱。",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
@@ -15,8 +15,7 @@
     "lib/**/*.js",
     "cordis.patch.yml",
     "README.md",
-    "README.zh.md",
-    "LICENSE"
+    "DESIGN.md"
   ],
   "dsh": {
     "bundle": {
@@ -31,21 +30,5 @@
   },
   "engines": {
     "node": ">=20"
-  },
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/Anilams/dsh-session-observer.git"
-  },
-  "homepage": "https://github.com/Anilams/dsh-session-observer#readme",
-  "bugs": {
-    "url": "https://github.com/Anilams/dsh-session-observer/issues"
-  },
-  "keywords": [
-    "dsh",
-    "dsh-plugin",
-    "deepseek-harness",
-    "agent-observability",
-    "conversation-view"
-  ]
+  }
 }

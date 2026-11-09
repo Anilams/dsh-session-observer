@@ -26,6 +26,7 @@ import { computeMetrics } from './lib/metrics.js'
 import { apply as foldApply, createState, toView } from './lib/fold.js'
 import { appendNote, readNotes } from './lib/notes.js'
 import { buildMessages, parseNote, SYSTEM_PROMPT } from './lib/prompt.js'
+import { mountRoute } from './lib/web-rpc.js'
 
 export const name = 'session-observer'
 
@@ -35,9 +36,14 @@ export const name = 'session-observer'
  *
  * 2026-11-05 第二次事故就是这条：这里写着 `[]`，而 `run()` 里用了 `ctx.llm`，
  * 于是第一次真实会话 append 事件时立刻 fatal load failure，App 判定整棵插件树不可用。
- * `connection` 是可选的（headless 没有），所以继续用 `ctx.inject(['connection'], …)` 按需取。
+ *
+ * `connection` 与 `webServer` 也必须在册：
+ * 自定义 RPC 通道最终走 `connection.rpc.handle()` → `webServer.register(route)`，
+ * 而它读的是**调用方的 ctx**。少声明 `webServer` 时，注册那一刻会抛
+ * `cannot get property "webServer" without inject`——宿主直接 fatal。
+ * 代价：没有 web 服务的纯终端环境里本插件不激活；那本来也没有视图可画。
  */
-export const inject = ['llm', 'sessions']
+export const inject = ['llm', 'sessions', 'connection', 'webServer']
 
 /**
  * 事件类型 → 是否需要在调度器里被"看见"。别订阅 waterfall/serial，那会改控制流。
@@ -54,6 +60,8 @@ const WATCHED = new Set([
   'tool-workflow/agent-start', 'tool-workflow/agent-end',
   'tool-workflow/run-start', 'tool-workflow/run-end',
 ])
+
+const CHANNEL = '/session-observer'
 
 export const DEFAULTS = {
   enabled: true,
@@ -379,41 +387,54 @@ function install(ctx, config = {}) {
 
   // ── 供数 ────────────────────────────────────────────────────────────────
 
-  ctx.inject(['connection'], (scoped) => {
-    const dispose = scoped.connection.rpc.handle('/session-observer', async (endpoint, payload) => {
-      const sessionId = typeof payload?.sessionId === 'string' ? payload.sessionId : undefined
-      const target = pickSession(ctx, sessionId)
-      if (target === null) {
-        return { ok: false, error: { code: 'no-session', message: 'no live session', details: {} } }
-      }
-      const state = stateOf(target.session)
+  const handleRpc = async (endpoint, payload) => {
+    const sessionId = typeof payload?.sessionId === 'string' ? payload.sessionId : undefined
+    const target = pickSession(ctx, sessionId)
+    if (target === null) {
+      return { ok: false, error: { code: 'no-session', message: 'no live session', details: {} } }
+    }
+    const state = stateOf(target.session)
 
-      switch (endpoint) {
-        case 'snapshot':
-          // mode 由宿主说了算：客户端可能有陈旧的本地记忆，不能让它盖过真实配置。
-          return {
-            ok: true,
-            value: toView(state, {
-              session: target.meta,
-              running: target.running,
-              mode: cfg.mode,
-            }),
-          }
-        case 'annotate-now':
-          // 手动触发一次（面板上的"现在就标注"按钮）。
-          void run(target.session)
-          return { ok: true, value: { queued: true } }
-        case 'sessions':
-          return { ok: true, value: listSessions(ctx) }
-        case 'config':
-          if (payload?.patch && typeof payload.patch === 'object') Object.assign(cfg, payload.patch)
-          return { ok: true, value: { ...cfg } }
-        default:
-          return { ok: false, error: { code: 'unknown-endpoint', message: String(endpoint), details: {} } }
-      }
-    })
-    scoped.effect(() => () => { void dispose() }, 'session-observer: rpc')
-  })
+    switch (endpoint) {
+      case 'snapshot':
+        // mode 由宿主说了算：客户端可能有陈旧的本地记忆，不能让它盖过真实配置。
+        return {
+          ok: true,
+          value: toView(state, {
+            session: target.meta,
+            running: target.running,
+            mode: cfg.mode,
+          }),
+        }
+      case 'annotate-now':
+        // 手动触发一次（视图上的「看一眼它在试什么」）。
+        void run(target.session)
+        return { ok: true, value: { queued: true } }
+      case 'sessions':
+        return { ok: true, value: listSessions(ctx) }
+      case 'config':
+        if (payload?.patch && typeof payload.patch === 'object') Object.assign(cfg, payload.patch)
+        return { ok: true, value: { ...cfg } }
+      default:
+        return { ok: false, error: { code: 'unknown-endpoint', message: String(endpoint), details: {} } }
+    }
+  }
+
+  // 先走宿主给的通道，走不通再自己挂。
+  //
+  // 为什么需要第二条路：`rpc.handle()` 内部是 `owner.webServer.register(route)`，
+  // 而 owner 是 cordis 跟踪代理给出的 ctx。在 App 里（client-connection 0.2.x）这条路
+  // 是通的；但同一个插件装到 CLI 那套 0.1.7-rc.1 上，那个 ctx 拿不到 webServer，注册
+  // 那一刻就抛 `cannot get property "webServer" without inject` —— 整个 apply 连带失败。
+  // 两条都实现，谁在就谁上，插件在两种宿主上都能用。
+  let disposeRpc
+  try {
+    const dispose = ctx.connection.rpc.handle(CHANNEL, handleRpc)
+    disposeRpc = () => { void dispose?.() }
+  } catch {
+    disposeRpc = mountRoute(ctx, { channel: CHANNEL, handler: handleRpc })
+  }
+  ctx.effect(() => () => { disposeRpc() }, 'session-observer: rpc')
 
   // ── 生命周期 ────────────────────────────────────────────────────────────
 

@@ -89,6 +89,8 @@ test('inject 必须声明实现里用到的服务', () => {
   //   connection.rpc.handle() 内部走 webServer.register(route)，
   //   而它读的是调用方的 ctx —— 于是 "cannot get property webServer without inject"。
   // 静态扫描抓不到它，因为 index.js 里根本看不到 ctx.webServer。
+  assert.ok(inject.includes('connection'), 'inject 必须包含 "connection"：自定义 RPC 通道要用它')
+  assert.ok(inject.includes('webServer'), 'inject 必须包含 "webServer"：RPC 路由最终注册在它上面')
 })
 
 test('严格 ctx 下 apply + 触发一次语义边界也不抛', async () => {
@@ -105,6 +107,7 @@ test('严格 ctx 下 apply + 触发一次语义边界也不抛', async () => {
     },
     sessions: { list: () => [session] },
     connection: { rpc: { handle: () => async () => {} } },
+    webServer: { register: () => () => {} },
   })
 
   // apply 内部会 ctx.on('session/event')——把它记下来好手动触发

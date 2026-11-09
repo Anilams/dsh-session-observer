@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>观察 v8 · UniFi 结构</title>
+<style>
+/* ─── UniFi Motif 令牌：色值全部来自 unifi.ui.com 控制台实测 ─────────────── */
+:root{
+  --n00:#ffffff; --n25:#fcfcfd; --n50:#f9fafa; --n75:#f4f5f6; --n100:#eef0f1;
+  --n150:#e6e8ea; --n200:#dcdfe2; --n300:#c2c6cb; --n400:#a2a8b0; --n500:#808893;
+  --n600:#676f79; --n700:#50565e; --n800:#383d44; --n900:#212327; --n950:#171a1e; --n1000:#0f1114;
+
+  --bg:#ffffff;
+  --chrome:#f4f5f6;
+  --surface:#ffffff;
+  --surface-2:#f9fafa;
+  --hover:rgba(33,35,39,.04);
+  --press:rgba(33,35,39,.08);
+
+  --ink:#212327;
+  --ink-2:#50565e;
+  --ink-3:#808893;
+  --ink-4:#c2c6cb;
+
+  --line:rgba(33,35,39,.07);
+  --line-2:rgba(33,35,39,.14);
+
+  --blue:#006eff;
+  --blue-hover:#0058cc;
+  --blue-tint:rgba(0,110,255,.08);
+  --green:#258341;
+  --green-bright:#61d684;
+  --amber:#ae7613;
+  --amber-bright:#e79913;
+
+  --c1:#006eff; --c2:#7e36ba; --c3:#3186aa; --c4:#258341;
+
+  --r-4:4px; --r-8:8px; --r-16:16px;
+
+  --fs-9:9px; --fs-11:11px; --fs-13:13px; --fs-15:15px; --fs-20:20px;
+  --sans:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB",
+         "Microsoft YaHei","Helvetica Neue",Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --ease:cubic-bezier(.16,1,.3,1);
+  --t-fast:120ms;
+}
+[data-theme="dark"] .opt.take,[data-theme="dark"] .opt.drop{border:1px solid var(--line)}
+[data-theme="dark"] .tag.fork{color:var(--amber-bright);background:color-mix(in srgb,var(--amber-bright) 18%,transparent)}
+[data-theme="dark"] .tag.dim{color:var(--c2);background:color-mix(in srgb,var(--c2) 20%,transparent)}
+[data-theme="dark"]{
+  --n00:#151725; --n25:#191b2b; --n50:#1b1e2e; --n75:#202435; --n100:#252a3c;
+  --n150:#2b3145; --n200:#333a50; --n300:#4a5168; --n400:#5d6478; --n500:#8b93a7;
+  --n600:#a3aab9; --n700:#c2c8d4; --n800:#dee0e3; --n900:#f9fafa; --n950:#fbfcfc; --n1000:#fff;
+
+  --bg:#151725; --chrome:#101220; --surface:#1b1e2e; --surface-2:#202435;
+  --hover:rgba(249,250,250,.06); --press:rgba(249,250,250,.1);
+  --ink:#f9fafa; --ink-2:#dee0e3; --ink-3:#a3aab9; --ink-4:#5d6478;
+  --line:rgba(249,250,250,.07); --line-2:rgba(249,250,250,.14);
+  --blue:#4797ff; --blue-hover:#6eaaff; --blue-tint:rgba(71,151,255,.14);
+  --green:#61d684; --amber:#e79913; --amber-bright:#e79913;
+  --c1:#4797ff; --c2:#b47cde; --c3:#63bde3; --c4:#61d684;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--bg);color:var(--ink);font:400 var(--fs-13)/20px var(--sans);
+  -webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums;
+  display:flex;align-items:center;justify-content:center}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+.app{width:min(1440px,100vw);height:min(900px,100vh);background:var(--bg);
+  display:flex;flex-direction:column;overflow:hidden}
+
+/* ── 顶栏：50px，chrome 底色（UniFi 的 app bar） ── */
+.top{flex:none;height:50px;display:flex;align-items:center;gap:12px;
+  padding:0 16px;background:var(--chrome);border-bottom:1px solid var(--line)}
+.led{width:8px;height:8px;border-radius:50%;background:var(--green-bright);flex:none;
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--green-bright) 22%,transparent)}
+.vword{font-size:var(--fs-15);font-weight:600;letter-spacing:-.01em;color:var(--ink)}
+.tick{font-family:var(--mono);font-size:var(--fs-11);color:var(--ink-2);
+  background:var(--n100);border-radius:var(--r-4);padding:1px 6px}
+.crumb{display:flex;align-items:center;gap:6px;font-size:var(--fs-11);color:var(--ink-2)}
+.crumb .sep{width:3px;height:3px;border-radius:50%;background:var(--n300)}
+.crumb b{font-weight:600;color:var(--ink)}
+.goal{font-size:var(--fs-11);color:var(--ink-2);white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;max-width:38ch;padding-left:2px}
+.sp{flex:1}
+[data-icon]{display:inline-flex;align-items:center;justify-content:center;flex:none}
+.ui-ico{display:block;fill:currentColor}
+.vico{display:inline-flex;align-items:center;color:var(--green)}
+.vico .ui-ico{width:16px;height:16px}
+.rail .ui-ico{color:var(--tone)}
+.rail .ui-ico.fork{color:var(--amber-bright)}
+.rail .ui-ico.dim{color:var(--c2)}
+.btn .ui-ico,.mode .ui-ico{width:14px;height:14px;margin-right:5px}
+.phead .ui-ico{width:14px;height:14px;color:var(--ink-3);margin-right:2px}
+.tool .ui-ico{width:14px;height:14px;color:var(--ink-3);margin-right:6px}
+.tool{display:flex;align-items:center;gap:0}
+.tab .ui-ico{width:14px;height:14px;color:var(--ink-3);margin-right:5px}
+.tab.on .ui-ico{color:var(--ink-2)}
+.btn{height:24px;padding:0 10px;border:1px solid var(--line-2);border-radius:var(--r-4);
+  font-size:var(--fs-11);color:var(--ink-2);background:var(--surface);
+  transition:background-color var(--t-fast) var(--ease),border-color var(--t-fast) var(--ease)}
+.btn:hover{background:var(--n75);border-color:var(--n300)}
+.btn:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+.mode{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;
+  border:1px solid var(--line-2);border-radius:var(--r-4);background:var(--surface);
+  font-size:var(--fs-11);color:var(--ink-2)}
+.mode i{width:6px;height:6px;border-radius:50%;background:var(--amber-bright)}
+
+/* ── 主体：主区 + 300px 侧栏（UniFi 的信息面板宽 280–335） ── */
+.body{flex:1;display:flex;min-height:0}
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.side{width:300px;flex:none;border-left:1px solid var(--line);padding:12px;
+  display:flex;flex-direction:column;gap:12px;overflow-y:auto;background:var(--bg)}
+
+/* ── 下划线 tab（UniFi 的 32px tab bar） ── */
+.tabs{flex:none;display:flex;gap:0;padding:0 16px;border-bottom:1px solid var(--line);
+  background:var(--bg)}
+.tab{height:36px;position:relative;display:inline-flex;align-items:center;gap:6px;padding:0 12px;
+  font-size:var(--fs-13);color:var(--ink-2);transition:color var(--t-fast) var(--ease)}
+.tab span{font-family:var(--mono);font-size:var(--fs-9);color:var(--ink-3)}
+.tab:hover{color:var(--ink)}
+.tab:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+.tab.on{color:var(--ink);font-weight:500}
+.tab.on::after{content:"";position:absolute;left:8px;right:8px;bottom:-1px;height:2px;
+  background:var(--blue);border-radius:1px}
+.tab.on span{color:var(--ink-2)}
+.tabs .sp{flex:1}
+[data-icon]{display:inline-flex;align-items:center;justify-content:center;flex:none}
+.ui-ico{display:block;fill:currentColor}
+.vico{display:inline-flex;align-items:center;color:var(--green)}
+.vico .ui-ico{width:16px;height:16px}
+.rail .ui-ico{color:var(--tone)}
+.rail .ui-ico.fork{color:var(--amber-bright)}
+.rail .ui-ico.dim{color:var(--c2)}
+.btn .ui-ico,.mode .ui-ico{width:14px;height:14px;margin-right:5px}
+.phead .ui-ico{width:14px;height:14px;color:var(--ink-3);margin-right:2px}
+.tool .ui-ico{width:14px;height:14px;color:var(--ink-3);margin-right:6px}
+.tool{display:flex;align-items:center;gap:0}
+.tab .ui-ico{width:14px;height:14px;color:var(--ink-3);margin-right:5px}
+.tab.on .ui-ico{color:var(--ink-2)}
+.tabs .hint{display:flex;align-items:center;font-size:var(--fs-11);color:var(--ink-3)}
+
+/* ── 主区滚动 ── */
+.scroll{flex:1;overflow-y:auto;padding:0 16px 32px}
+.scroll::-webkit-scrollbar{width:10px}
+.scroll::-webkit-scrollbar-thumb{background:var(--n200);border-radius:9px;border:3px solid var(--bg)}
+
+/* ── 轮次：UniFi 的 section（发丝线分隔，不用卡片） ── */
+.turn{border-bottom:1px solid var(--line)}
+.turn:last-child{border-bottom:0}
+.thead{display:flex;align-items:center;gap:8px;height:32px;cursor:pointer;position:relative}
+.thead:hover{background:var(--hover)}
+.thead:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+.tnum{width:32px;flex:none;font-family:var(--mono);font-size:var(--fs-11);
+  color:var(--ink-2);text-align:center}
+.tname{font-size:var(--fs-13);font-weight:600;color:var(--ink)}
+.twhen{font-family:var(--mono);font-size:var(--fs-11);color:var(--ink-3)}
+.thead .grow{flex:1}
+.tmeta{display:flex;align-items:center;gap:10px;font-size:var(--fs-11);color:var(--ink-2)}
+.tmeta b{font-weight:600;color:var(--ink-2);font-family:var(--mono)}
+.arrow{width:16px;height:16px;display:flex;align-items:center;justify-content:center;
+  color:var(--ink-4);transition:transform var(--t-fast) var(--ease)}
+.turn.on .arrow{transform:rotate(90deg);color:var(--blue)}
+.turn.on .thead{background:var(--blue-tint);box-shadow:inset 2px 0 0 var(--blue)}
+.turn.on .tnum,.turn.on .tname{color:var(--blue)}
+.row:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+
+/* ── 决策行 ── */
+.rows{position:relative;padding:2px 0 6px}
+.rows .spine{position:absolute;left:15.5px;top:2px;bottom:10px;width:1px;background:var(--line)}
+.row{display:flex;align-items:flex-start;gap:0;border-radius:var(--r-4);position:relative;min-height:24px}
+.row:hover{background:var(--hover)}
+.rail{width:32px;flex:none;align-self:stretch;position:relative;display:flex;
+  justify-content:center;color:var(--tone)}
+
+.ico{position:relative;z-index:1;display:block;margin-top:3px}
+.rbody{flex:1;min-width:0;padding:1px 4px 1px 0;display:flex;flex-direction:column}
+.rgo{margin-left:auto;align-self:center;color:var(--ink-4);opacity:0;padding-right:4px;
+  transition:opacity var(--t-fast) var(--ease),color var(--t-fast) var(--ease)}
+.row:hover .rgo{opacity:1;color:var(--blue)}
+.row:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+.row{cursor:default}
+.rtop{display:flex;align-items:baseline;gap:10px;min-height:20px}
+.rtime{font-family:var(--mono);font-size:var(--fs-11);color:var(--ink-2);width:34px;flex:none}
+.rtext{font-size:var(--fs-13);color:var(--ink);line-height:20px}
+.rsub{font-size:var(--fs-11);color:var(--ink-2);line-height:18px;margin-left:44px}
+.tag{display:inline-flex;align-items:center;gap:3px;height:16px;padding:0 5px;border-radius:var(--r-4);
+  font-size:var(--fs-9);font-weight:500;margin-left:6px;vertical-align:1px}
+.tag .ui-ico{width:11px;height:11px}
+.idle .lbl{display:inline-flex;align-items:center;gap:4px}
+.idle .ui-ico{width:12px;height:12px;color:var(--ink-3)}
+.arrow .ui-ico,.rgo .ui-ico{display:block}
+.tag.fork{color:#7a4f0a;background:color-mix(in srgb,var(--amber-bright) 14%,transparent)}
+.tag.dim{color:var(--c2);background:color-mix(in srgb,var(--c2) 14%,transparent)}
+.pick{display:flex;gap:6px;margin:2px 0 4px 44px;flex-wrap:wrap}
+.opt{display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 7px;
+  border-radius:var(--r-4);font-size:var(--fs-11)}
+.opt b{font-size:var(--fs-9);font-weight:600;opacity:.7}
+.opt.take{background:var(--blue-tint);color:var(--blue-hover)}
+.opt.drop{background:var(--n50);color:var(--ink-2);text-decoration:line-through;
+  text-decoration-color:var(--ink-4)}
+.opt.drop b{text-decoration:none;color:var(--ink-3)}
+.more{margin:2px 0 4px 44px;font-size:var(--fs-11);color:var(--ink-2)}
+.idle{display:flex;align-items:center;gap:8px;height:24px;font-size:var(--fs-11);color:var(--ink-2)}
+.idle .g{width:32px;flex:none;display:flex;justify-content:center;align-self:stretch}
+.idle .g i{width:1px;height:100%;background:repeating-linear-gradient(var(--n300) 0 3px,transparent 3px 7px)}
+.idle .f{flex:1;height:1px;background:repeating-linear-gradient(to right,var(--n300) 0 3px,transparent 3px 7px)}
+.idle .lbl{flex:none;letter-spacing:.02em}
+
+/* ── 侧栏面板：1px 边 + 4px 圆角 + 12px 内边距（与他们的 280px 面板同构） ── */
+.panel{border:1px solid var(--line);border-radius:var(--r-4);padding:12px;background:var(--surface)}
+.phead{display:flex;align-items:baseline;gap:8px;margin-bottom:8px}
+.phead h4{font-size:var(--fs-11);font-weight:500;color:var(--ink-2)}
+.phead .r{margin-left:auto;font-family:var(--mono);font-size:var(--fs-9);color:var(--ink-3)}
+
+.kv{display:flex;flex-direction:column}
+.krow{display:flex;align-items:center;height:20px;font-size:var(--fs-13)}
+.krow .k{color:var(--ink-2)}
+.krow .v{margin-left:auto;font-family:var(--mono);font-size:var(--fs-13);color:var(--ink)}
+.krow .u{font-size:var(--fs-9);color:var(--ink-3);margin-left:3px}
+.krow.warn .v{color:var(--amber)}
+.krow.bad .v{color:var(--c2)}
+
+.chart{margin-top:10px;padding-top:8px;border-top:1px solid var(--line)}
+.bars{display:flex;align-items:flex-end;gap:2px;height:56px;position:relative}
+.bars::before{content:"";position:absolute;left:0;right:0;top:25%;height:1px;background:var(--line)}
+.bars::after{content:"";position:absolute;left:0;right:0;top:60%;height:1px;background:var(--line)}
+.bars i{flex:1;min-width:2px;border-radius:1px 1px 0 0;background:var(--c1);opacity:.92}
+.bars i.off{opacity:.16}
+.bars i.live{background:var(--c4)}
+.bars .now{position:absolute;right:0;top:-4px;bottom:0;width:1px;background:var(--ink-4);opacity:.5}
+.bars .now::after{content:"";position:absolute;top:-3px;left:-2px;width:5px;height:5px;border-radius:50%;background:var(--c4)}
+.axis{display:flex;justify-content:space-between;margin-top:4px;
+  font-family:var(--mono);font-size:var(--fs-9);color:var(--ink-2)}
+.legend{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px}
+.lg{display:inline-flex;align-items:center;gap:4px;font-size:var(--fs-9);color:var(--ink-3)}
+.lg i{width:6px;height:6px;border-radius:1px}
+
+.tool{display:flex;align-items:center;height:20px;font-size:var(--fs-13);color:var(--ink-2)}
+.tool .nm{font-family:var(--mono);font-size:var(--fs-11)}
+.tool .v{margin-left:auto;font-family:var(--mono);font-size:var(--fs-11);color:var(--ink-3)}
+.mix{display:flex;height:4px;border-radius:2px;overflow:hidden;margin-bottom:8px}
+.mix i{height:100%}
+.cost{display:flex;align-items:baseline;gap:8px}
+.cost .big{font-family:var(--mono);font-size:var(--fs-20);font-weight:600;color:var(--ink)}
+.cost .sub{font-size:var(--fs-11);color:var(--ink-2);line-height:1.5}
+.note{font-size:var(--fs-11);color:var(--ink-3);line-height:1.6}
+.goaltext{font-size:var(--fs-11);line-height:18px;color:var(--ink-2);
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+#statsToggle{display:none}
+@media (max-width:1180px){ .side{width:260px} .goal{display:none} }
+@media (max-width:1020px){
+  .side{display:none}
+  #statsToggle{display:inline-flex}
+  .app.show-side .side{display:flex;width:300px;position:absolute;right:0;top:50px;bottom:0;
+    background:var(--bg);box-shadow:-1px 0 0 var(--line),-16px 0 32px -24px rgba(0,0,0,.4);z-index:6}
+  .app.show-side::after{content:"";position:absolute;inset:50px 300px 0 0;background:rgba(21,23,37,.18);z-index:5}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <span class="vico" data-icon="activity"></span>
+    <span class="vword">运行中</span>
+    <span class="tick">12 分</span>
+    <span class="crumb" id="crumb"></span>
+    <span class="sp"></span>
+    <button class="mode"><span data-icon="info"></span><span>规则分析</span></button>
+    <button class="btn" id="statsToggle"><span data-icon="ring"></span><span>统计</span></button>
+    <button class="btn" id="theme"><span data-icon="gear"></span><span id="themeLabel">深色</span></button>
+  </header>
+
+  <div class="body">
+    <section class="main">
+      <div class="tabs" id="tabs"></div>
+      <div class="scroll" id="left"></div>
+    </section>
+    <aside class="side" id="side"></aside>
+  </div>
+</div>
+
+<script src="unifi-icons.js"></script>
+<script src="data.js"></script>
+<script>
+const D = window.OBS;
+const ICONS = window.UNIFI_ICONS;
+const ICON = (name, size = 16, cls = '') => {
+  const i = ICONS[name];
+  if (!i) return '';
+  return `<svg class="ui-ico ${cls}" width="${size}" height="${size}" viewBox="${i.vb}" fill="none" aria-hidden="true">${i.d}</svg>`;
+};
+const HUES = ['var(--c1)', 'var(--c2)', 'var(--c3)', 'var(--c4)'];
+const HUE = (n) => HUES[n - 1] ?? 'var(--n400)';
+const state = { sel: 'all' };
+const ACTIVE = D.turns.reduce((s, t) => s + t.active, 0);
+const CELL_TURN = (() => {
+  const out = [];
+  D.turns.forEach((t) => {
+    const w = Math.max(1, Math.round(t.active / ACTIVE * D.rhythm.length));
+    for (let i = 0; i < w && out.length < D.rhythm.length; i += 1) out.push(t.n);
+  });
+  while (out.length < D.rhythm.length) out.push(4);
+  return out;
+})();
+
+const glyph = (k) => {
+  if (k === 'fork') return ICON('nodes', 15, 'fork');
+  if (k === 'dim') return ICON('info', 13, 'dim');
+  return ICON('ring', 13);
+};
+
+function renderTabs() {
+  const el = document.getElementById('tabs');
+  el.innerHTML = `
+    <button class="tab ${state.sel === 'all' ? 'on' : ''}" data-t="all" aria-pressed="${state.sel === 'all'}">${ICON('filter', 14)}<span>全部</span><span class="u">${D.headline.activeMin} 分</span></button>
+    ${D.turns.map((x) => `<button class="tab ${state.sel === x.n ? 'on' : ''}" data-t="${x.n}" aria-pressed="${state.sel === x.n}">第 ${x.n} 轮<span>${x.active} 分</span></button>`).join('')}
+    <span class="sp"></span>
+    <span class="hint">${D.headline.notes} 个决策点 · ${D.headline.forks} 处岔路</span>`;
+  el.querySelectorAll('.tab').forEach((b) => {
+    b.onclick = () => { state.sel = b.dataset.t === 'all' ? 'all' : Number(b.dataset.t); render(); };
+  });
+}
+
+function renderLeft() {
+  const out = [];
+  D.turns.forEach((t) => {
+    const tone = HUE(t.n);
+    if (D.idleBefore[t.n]) {
+      out.push(`<div class="idle"><span class="g"><i></i></span><span class="f"></span><span class="lbl">${ICON('clock', 12)}空闲 ${D.idleBefore[t.n]}</span><span class="f"></span></div>`);
+    }
+    out.push(`<section class="turn ${state.sel === t.n ? 'on' : ''}" data-turn="${t.n}" style="--tone:${tone}">
+      <header class="thead" role="button" tabindex="0" aria-expanded="${state.sel === t.n}">
+        <span class="tnum">${t.n}</span>
+        <span class="tname">第 ${t.n} 轮</span>
+        <span class="twhen">${t.start}${t.state === 'live' ? '' : ' → ' + t.end}</span>
+        <span class="grow"></span>
+        <span class="tmeta">${t.forks ? `<span>${t.forks} 岔路</span>` : ''}<span><b>${t.notes}</b> 决策</span><span><b>${t.steps}</b> 步</span><span>有效 ${t.active} 分</span></span>
+        <span class="arrow">${ICON('chev-right', 14)}</span>
+      </header>
+      <div class="rows">
+        <i class="spine"></i>
+        ${t.nodes.map((nd) => {
+          const isFork = nd.k === 'fork';
+          const body = isFork && nd.chosen
+            ? `<div class="pick"><span class="opt take"><b>选</b>${nd.chosen}</span>
+                <span class="opt drop"><b>弃</b>${nd.alt}</span></div>`
+            : nd.sub ? `<div class="rsub">${nd.sub}</div>` : '';
+          return `<div class="row" tabindex="0" role="button" aria-label="${nd.t} ${nd.text}">
+            <span class="rail">${glyph(nd.k)}</span>
+            <div class="rbody">
+              <div class="rtop">
+                <span class="rtime">${nd.t}</span>
+                <span class="rtext">${nd.text}${nd.k === 'fork' ? `<span class="tag fork">${ICON('nodes', 10)}岔路</span>` : nd.k === 'dim' ? `<span class="tag dim">${ICON('info', 10)}低置信</span>` : ''}</span>
+              </div>
+              ${body}
+            </div>
+            <span class="rgo">${ICON('chev-right', 12)}</span>
+          </div>`;
+        }).join('')}
+        ${t.more ? `<div class="more">还有 ${t.more} 个决策点</div>` : ''}
+      </div>
+    </section>`);
+  });
+  document.getElementById('left').innerHTML = out.join('');
+  document.querySelectorAll('.turn').forEach((el) => {
+    const head = el.querySelector('.thead');
+    const act = () => { const n = Number(el.dataset.turn); state.sel = state.sel === n ? 'all' : n; render(); };
+    head.onclick = act;
+    head.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); act(); } };
+  });
+}
+
+function renderSide() {
+  const isAll = state.sel === 'all';
+  const t = isAll ? { n: 'all', ...D.total } : D.turns.find((x) => x.n === state.sel);
+  const maxR = Math.max(...D.rhythm);
+  const toolC = ['var(--c1)', 'var(--c2)', 'var(--c3)', 'var(--n400)'];
+  const total = t.tools.reduce((s, x) => s + x[1], 0);
+  const top = t.tools.slice(0, 3);
+  const rest = t.tools.slice(3).reduce((s, x) => s + x[1], 0);
+  const mix = [...top, ...(rest ? [['其他', rest]] : [])];
+  const mixTotal = mix.reduce((s, x) => s + x[1], 0);
+  const rate = (t.fails / Math.max(1, t.calls) * 100).toFixed(1);
+  const rep = Math.round(t.repeats / Math.max(1, t.calls) * 100);
+
+  document.getElementById('side').innerHTML = `
+    <div class="panel">
+      <div class="phead">${ICON('gauge', 14)}<h4>会话目标</h4></div>
+      <p class="goaltext" title="${D.turns[0].sum}">${D.turns[0].sum}</p>
+    </div>
+
+    <div class="panel">
+      <div class="phead">${ICON('clipboard', 14)}<h4>${isAll ? '会话合计' : '第 ' + t.n + ' 轮'}</h4><span class="r">${isAll ? D.headline.range : t.start + ' → ' + (t.end || '现在')}</span></div>
+      <div class="kv">
+        <div class="krow"><span class="k">步数</span><span class="v">${t.steps}<span class="u">步</span></span></div>
+        <div class="krow"><span class="k">工具调用</span><span class="v">${t.calls}<span class="u">次</span></span></div>
+        <div class="krow ${t.fails ? 'warn' : ''}"><span class="k">失败率</span><span class="v">${rate}<span class="u">%</span></span></div>
+        <div class="krow ${rep >= 40 ? 'warn' : ''}"><span class="k">重复率</span><span class="v">${rep}<span class="u">%</span></span></div>
+      </div>
+      <div class="chart">
+        <div class="bars">
+          ${D.rhythm.map((v, i) => {
+            const off = !isAll && CELL_TURN[i] !== state.sel;
+            const live = i === D.rhythm.length - 1;
+            return `<i class="${off ? 'off' : ''}${live ? ' live' : ''}" title="第 ${CELL_TURN[i]} 轮 · ${Math.round((i + .5) * 48 / D.rhythm.length)} 分"
+              style="height:${Math.max(3, Math.round(v / maxR * 52))}px;background:${HUE(CELL_TURN[i])}"></i>`;
+          }).join('')}
+          <i class="now" style="height:auto"></i>
+        </div>
+        <div class="axis"><span>0 分</span><span>峰值 ${maxR} / 格 · 空闲已折叠</span><span>${D.headline.activeMin} 分</span></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="phead">${ICON('ring', 14)}<h4>工具分布</h4><span class="r">${total} 次</span></div>
+      <div class="mix">${mix.map(([n, c], i) => `<i style="width:${c / mixTotal * 100}%;background:${toolC[i]}"></i>`).join('')}</div>
+      ${mix.map(([n, c], i) => `<div class="tool">${ICON(toolIcon(n), 14)}<span class="nm">${n}</span><span class="v">${Math.round(c / mixTotal * 100)}%</span></div>`).join('')}
+    </div>
+
+    <div class="panel">
+      <div class="phead">${ICON('register', 14)}<h4>成本</h4><span class="r">规则分析</span></div>
+      <div class="cost"><span class="big">¥0</span><span class="sub">本轮模型调用 0 次 · 0 token</span></div>
+    </div>`;
+}
+
+const TOOL_ICON = { bash: 'screen', edit: 'clipboard', write: 'box', read_image: 'screen',
+  job_output: 'register', job_kill: 'close', validate_dsh_ui: 'check', read: 'clipboard', grep: 'filter' };
+const toolIcon = (n) => TOOL_ICON[n] || 'gear';
+
+function hydrateIcons() {
+  document.querySelectorAll('[data-icon]').forEach((el) => {
+    el.innerHTML = ICON(el.dataset.icon, 14);
+  });
+}
+
+function renderHeader() {
+  const h = D.headline;
+  document.getElementById('crumb').innerHTML =
+    `<span>第 <b>${h.current}</b>/${h.turns} 轮</span><span class="sep"></span>` +
+    `<span>有效 <b>${h.activeMin} 分</b></span><span class="sep"></span><span>跨度 ${h.span}</span>`;
+}
+
+function render() { renderTabs(); renderLeft(); renderSide(); hydrateIcons(); }
+document.getElementById('theme').onclick = () => {
+  const root = document.documentElement;
+  const dark = root.dataset.theme === 'dark';
+  root.dataset.theme = dark ? '' : 'dark';
+  document.getElementById('theme').textContent = dark ? '深色' : '浅色';
+};
+const app = document.querySelector('.app');
+document.getElementById('statsToggle').onclick = (e) => { e.stopPropagation(); app.classList.toggle('show-side'); };
+app.addEventListener('click', (e) => {
+  if (!app.classList.contains('show-side')) return;
+  if (e.target.closest('.side') || e.target.closest('#statsToggle')) return;
+  app.classList.remove('show-side');
+});
+addEventListener('keydown', (e) => { if (e.key === 'Escape') app.classList.remove('show-side'); });
+renderHeader();
+render();
+</script>
+</body>
+</html>

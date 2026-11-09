@@ -65,18 +65,19 @@ test('会话 id 里的怪字符不会逃出存储目录', () => {
 /** 最小 ctx：只实现 index.js 真正用到的面（与 host-smoke 同构）。 */
 function makeCtx(session) {
   const listeners = []
-  const connection = {
-    rpc: { handle(channel, handler) { ctx.rpcHandler = handler; ctx.rpcChannel = channel; return async () => {} } },
-  }
+  const connection = {}
+  const webServer = makeWebServer()
   const ctx = {
     llm: { stream: () => { throw new Error('不应触发旁路：enabled=false') } },
     sessions: { list: () => [session] },
     effect(fn) { const dispose = fn(); return () => { try { dispose?.() } catch { /* noop */ } } },
+    connection,
+    webServer,
+    routes: webServer.routes,
     inject(_names, callback) {
       callback({
         on(name, listener) { listeners.push({ name, listener }); return () => {} },
         effect(fn) { fn(); return () => {} },
-        connection,
       })
       return () => {}
     },
@@ -103,7 +104,7 @@ test('重放时 note 折在 anchor 之后、下一条事件之前', async () => 
   const ctx = makeCtx(session)
   apply(ctx, { ...DEFAULTS, enabled: false })
 
-  const result = await ctx.rpcHandler('snapshot', { sessionId: 'sess-replay' }, undefined)
+  const result = await callRoute(ctx, 'snapshot', { sessionId: 'sess-replay' })
   assert.equal(result.ok, true)
   assert.equal(result.value.now.text, '准备跑测试', 'note 没被折回来')
   assert.equal(result.value.spine.length, 1)
@@ -112,3 +113,50 @@ test('重放时 note 折在 anchor 之后、下一条事件之前', async () => 
   assert.equal(result.value.prediction.history[0], 'full')
   assert.equal(result.value.metrics.calls, 2)
 })
+
+/** 假 webServer：记录注册进来的路由，供测试直接驱动。 */
+function makeWebServer() {
+  const routes = new Map()
+  return { routes,
+    register(route) {
+      routes.set(route.path, route)
+      return () => routes.delete(route.path)
+    },
+  }
+}
+
+/**
+ * 走一遍真实的 node:http 桥接：假 req 是异步可迭代的，假 res 收集状态码与 body。
+ * 这样测试覆盖到的是 mountRoute 的整条路径，而不是直接调 handler。
+ */
+async function callRoute(ctx, endpoint, payload, { method = 'POST' } = {}) {
+  const route = ctx.webServer.routes.get('/session-observer')
+  if (route === undefined) throw new Error('RPC 路由没有注册')
+  const body = method === 'POST'
+    ? JSON.stringify({ type: 'client-request', rpcId: 'r1', method: endpoint, payload })
+    : ''
+  const chunks = body === '' ? [] : [Buffer.from(body, 'utf8')]
+  const req = {
+    method,
+    url: `/session-observer/${endpoint}`,
+    headers: { host: '127.0.0.1:3097', 'content-type': 'application/json' },
+    [Symbol.asyncIterator]() {
+      let index = 0
+      return { async next() { return index < chunks.length ? { value: chunks[index++], done: false } : { done: true, value: undefined } } }
+    },
+    destroy() {},
+  }
+  const state = { status: 0, body: '', ended: false }
+  const res = {
+    writeHead(status) { state.status = status },
+    write(chunk) { state.body += Buffer.from(chunk).toString('utf8'); return true },
+    end(chunk) { if (chunk !== undefined) state.body += Buffer.from(chunk).toString('utf8'); state.ended = true },
+    on() {},
+    once() {},
+    off() {},
+    get writableEnded() { return state.ended },
+  }
+  await route.handler(req, res)
+  if (state.status !== 200) throw new Error(`RPC ${endpoint} 返回 HTTP ${state.status}: ${state.body}`)
+  return JSON.parse(state.body).result
+}

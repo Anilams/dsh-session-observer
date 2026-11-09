@@ -56,15 +56,8 @@ function makeCtx({ session, reply }) {
   const disposers = []
   let streamOptions = null
 
-  const connection = {
-    rpc: {
-      handle(channel, handler) {
-        ctx.rpcHandler = handler
-        ctx.rpcChannel = channel
-        return async () => {}
-      },
-    },
-  }
+  const connection = {}
+  const webServer = makeWebServer()
 
   const ctx = {
     llm: {
@@ -79,6 +72,9 @@ function makeCtx({ session, reply }) {
     },
     sessions: { list: () => [session] },
     effect(fn) { disposers.push(fn()); return fn },
+    connection,
+    webServer,
+    routes: webServer.routes,
     inject(_names, callback) {
       callback({
         on(name, listener) {
@@ -86,7 +82,6 @@ function makeCtx({ session, reply }) {
           return () => {}
         },
         effect(fn) { disposers.push(fn()); return fn },
-        connection,
       })
       return () => {}
     },
@@ -95,6 +90,26 @@ function makeCtx({ session, reply }) {
     for (const entry of listeners) if (entry.name === name) entry.listener(...args)
   }, getStreamOptions: () => streamOptions }
 }
+
+test('宿主给了 native rpc.handle 时优先走它，不自己挂路由', async () => {
+  seq = 0
+  freshHome()
+  const { session } = makeSession()
+  const harness = makeCtx({ session, reply: '{}' })
+  let nativeChannel = null
+  harness.ctx.connection.rpc = {
+    handle(channel, handler) {
+      nativeChannel = channel
+      harness.ctx.nativeHandler = handler
+      return async () => {}
+    },
+  }
+  apply(harness.ctx, { ...DEFAULTS, enabled: false })
+
+  assert.equal(nativeChannel, '/session-observer', 'native 通道没被使用')
+  assert.equal(typeof harness.ctx.nativeHandler, 'function')
+  assert.equal(harness.ctx.routes.size, 0, '有 native 通道时不该重复挂自己的路由')
+})
 
 test('完整链路：事件 → 折叠 → 旁路 → note 落盘 → RPC 快照', async () => {
   seq = 0
@@ -116,8 +131,7 @@ test('完整链路：事件 → 折叠 → 旁路 → note 落盘 → RPC 快照
   apply(harness.ctx, { ...DEFAULTS, mode: 'smart', intervalMs: 0, minNewEvents: 1 })
 
   // 先确认两处软依赖都接上了
-  assert.equal(harness.ctx.rpcChannel, '/session-observer')
-  assert.equal(typeof harness.ctx.rpcHandler, 'function')
+  assert.ok(harness.ctx.routes.has('/session-observer'), 'RPC 通道没有挂到 webServer 上')
 
   harness.emit('session/event', session, { seq: nextSeq(), type: 'user/message',
     data: { source: { kind: 'user' }, content: [{ type: 'text', text: '把 X 改成 Y' }] } })
@@ -151,7 +165,7 @@ test('完整链路：事件 → 折叠 → 旁路 → note 落盘 → RPC 快照
   assert.equal(options.temperature, 0)
 
   // RPC 快照
-  const result = await harness.ctx.rpcHandler('snapshot', { sessionId: 'sess-test' }, undefined)
+  const result = await callRoute(harness.ctx, 'snapshot', { sessionId: 'sess-test' })
   assert.equal(result.ok, true)
   assert.equal(result.value.goal, '把 X 改成 Y')
   assert.equal(result.value.step, 1)
@@ -181,7 +195,7 @@ test('重复事件不会把同一 tool/call 记两次（replay 去重）', () =>
   harness.emit('session/event', session, event)
   harness.emit('session/event', session, event)
 
-  return harness.ctx.rpcHandler('snapshot', { sessionId: 'sess-test' }, undefined).then((result) => {
+  return callRoute(harness.ctx, 'snapshot', { sessionId: 'sess-test' }).then((result) => {
     assert.equal(result.value.metrics.calls, 1, '重复投递导致 tool/call 被重复计数')
   })
 })
@@ -201,7 +215,7 @@ test('协议不合法的旁路回复整条丢弃，不落盘', async () => {
   await delay(300)
   assert.equal(readNotes('sess-test').length, 0)
 
-  const result = await harness.ctx.rpcHandler('snapshot', { sessionId: 'sess-test' }, undefined)
+  const result = await callRoute(harness.ctx, 'snapshot', { sessionId: 'sess-test' })
   assert.ok(result.value.usage.rejected >= 1, '非法回复应该计入 rejected')
 })
 
@@ -210,7 +224,7 @@ test('未知 RPC 端点给出结构化错误，而不是抛异常', async () => 
   const { session } = makeSession()
   const harness = makeCtx({ session, reply: '{}' })
   apply(harness.ctx, { ...DEFAULTS, enabled: false })
-  const result = await harness.ctx.rpcHandler('nope', {}, undefined)
+  const result = await callRoute(harness.ctx, 'nope', {})
   assert.equal(result.ok, false)
   assert.equal(result.error.code, 'unknown-endpoint')
 })
@@ -220,7 +234,7 @@ test('没有会话时快照返回 no-session，不崩', async () => {
   const harness = makeCtx({ session: { id: 'x', snapshotEvents: () => [] }, reply: '{}' })
   harness.ctx.sessions = { list: () => [] }
   apply(harness.ctx, { ...DEFAULTS, enabled: false })
-  const result = await harness.ctx.rpcHandler('snapshot', {}, undefined)
+  const result = await callRoute(harness.ctx, 'snapshot', {})
   assert.equal(result.ok, false)
   assert.equal(result.error.code, 'no-session')
 })
@@ -233,4 +247,52 @@ async function waitFor(predicate, timeoutMs = 2000) {
     if (predicate()) return
     await delay(20)
   }
+}
+
+/** 假 webServer：记录注册进来的路由，供测试直接驱动。 */
+function makeWebServer() {
+  const routes = new Map()
+  return {
+    routes,
+    register(route) {
+      routes.set(route.path, route)
+      return () => routes.delete(route.path)
+    },
+  }
+}
+
+/**
+ * 走一遍真实的 node:http 桥接：假 req 是异步可迭代的，假 res 收集状态码与 body。
+ * 这样测试覆盖到的是 mountRoute 的整条路径，而不是直接调 handler。
+ */
+async function callRoute(ctx, endpoint, payload, { method = 'POST' } = {}) {
+  const route = ctx.routes.get('/session-observer')
+  if (route === undefined) throw new Error('RPC 路由没有注册')
+  const body = method === 'POST'
+    ? JSON.stringify({ type: 'client-request', rpcId: 'r1', method: endpoint, payload })
+    : ''
+  const chunks = body === '' ? [] : [Buffer.from(body, 'utf8')]
+  const req = {
+    method,
+    url: `/session-observer/${endpoint}`,
+    headers: { host: '127.0.0.1:3097', 'content-type': 'application/json' },
+    [Symbol.asyncIterator]() {
+      let index = 0
+      return { async next() { return index < chunks.length ? { value: chunks[index++], done: false } : { done: true, value: undefined } } }
+    },
+    destroy() {},
+  }
+  const state = { status: 0, body: '', ended: false }
+  const res = {
+    writeHead(status) { state.status = status },
+    write(chunk) { state.body += Buffer.from(chunk).toString('utf8'); return true },
+    end(chunk) { if (chunk !== undefined) state.body += Buffer.from(chunk).toString('utf8'); state.ended = true },
+    on() {},
+    once() {},
+    off() {},
+    get writableEnded() { return state.ended },
+  }
+  await route.handler(req, res)
+  if (state.status !== 200) throw new Error(`RPC ${endpoint} 返回 HTTP ${state.status}: ${state.body}`)
+  return JSON.parse(state.body).result
 }

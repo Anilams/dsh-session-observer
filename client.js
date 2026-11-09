@@ -27,11 +27,11 @@ window.__ModuleLoader__.load({
 
     /** 判决 → 文案、色点。空字符串表示不显示额外理由。 */
     const VERDICT = {
-      running: { word: '在跑', tone: 'calm' },
-      stuck: { word: '卡住', tone: 'warn' },
-      erroring: { word: '出错', tone: 'warn' },
-      waiting: { word: '等你', tone: 'ask' },
-      dangerous: { word: '危险', tone: 'alarm' },
+      running: { word: '运行中', tone: 'calm' },
+      stuck: { word: '停滞', tone: 'warn' },
+      erroring: { word: '异常', tone: 'warn' },
+      waiting: { word: '待确认', tone: 'ask' },
+      dangerous: { word: '高风险', tone: 'alarm' },
     }
 
     // ── 样式 ────────────────────────────────────────────────────────────────
@@ -114,6 +114,10 @@ window.__ModuleLoader__.load({
 .svo-band i.l3{background:#c084fc;opacity:.78}
 /* 岔路永远琥珀——它是唯一需要你回头看一眼的格子 */
 .svo-band i.fork{background:var(--svo-fork);opacity:.9}
+/* 慢放：这一格能定位到一次真实动作 */
+.svo-band i.can{cursor:pointer}
+.svo-band i.can:hover{opacity:1}
+.svo-band i.can:active{transform:scaleY(.94);transform-origin:bottom}
 
 .svo-axis{display:flex;justify-content:space-between;gap:16px;
   font-family:var(--ds-font-family-code);font-size:10.5px;color:var(--svo-ink-3);
@@ -168,6 +172,16 @@ window.__ModuleLoader__.load({
 .svo-node.dim .g b{background:var(--svo-dim);opacity:.75}
 .svo-node.dim .t{color:var(--svo-ink-2)}
 
+/* 慢放：可跳转的节点。光标是最弱的那个信号，"↗" 常驻但压得很低——
+   它不该抢判决的注意力，只在你想离开这一屏的时候指一条路。 */
+.svo-node.can{cursor:pointer}
+.svo-node.can:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.svo-node.can:focus-visible{outline:1px solid var(--svo-ask);outline-offset:-1px}
+.svo-node .go{flex:none;align-self:center;padding-left:10px;
+  font-size:12px;color:var(--svo-ink-3);opacity:.28;
+  transition:opacity .14s var(--ds-ease-in-out),color .14s var(--ds-ease-in-out)}
+.svo-node.can:hover .go{opacity:1;color:var(--svo-mile)}
+
 /* 最新一条：心跳点，唯一持续动效 */
 .svo-node.fresh .g b{animation:svo-pulse 2.2s ease-in-out infinite}
 @keyframes svo-pulse{
@@ -219,7 +233,11 @@ window.__ModuleLoader__.load({
       return ctx.connection.rpc.call(CHANNEL, endpoint, payload ?? {})
         .then((result) => {
           if (result === null || typeof result !== 'object' || result.ok !== true) {
-            throw new Error(result?.error?.message ?? 'rpc failed')
+            const error = new Error(result?.error?.message ?? 'rpc failed')
+            // 错误码要留着：`no-session`（会话还没载入）和真的没接通是两件事，
+            // 说成同一句「未接通」会让用户以为插件坏了。
+            error.code = result?.error?.code ?? 'unknown'
+            throw error
           }
           return result.value
         })
@@ -247,38 +265,60 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 把决策点折成密度带。
+     * 把节拍与决策点叠成密度带。
      *
-     * 每一格的厚度 = 那段时间里的决策点数量。于是：
+     * 每一格的厚度 = 那段时间里的动作数量。于是：
      *   - 薄而长的一段空白 → 它卡住了
      *   - 粗而密的一串     → 它在原地打转
      * 两种病不读任何数字就能分辨，这正是这条带存在的理由。
+     *
+     * 数据源有两个，权重不同：
+     *   - 节拍（beats）：确定性事件，一次动作 = 1。**free 模式下带子也靠它活着。**
+     *   - 决策点（spine）：模型标注过的位置，额外 +2，因为它更值得看。
+     * 只用其中任何一个都是错的：只画 note 会把「模型不说话」误画成「没在动」。
      */
     const BUCKETS = 56
+    const BEAT_WEIGHT = 1
+    const NOTE_WEIGHT = 2
 
-    function bandOf(spine, startedAt, now) {
-      const cells = new Array(BUCKETS).fill(0)
-      const forks = new Array(BUCKETS).fill(false)
+    function bandOf(spine, beats, startedAt, now) {
+      const cells = Array.from({ length: BUCKETS },
+        () => ({ count: 0, fork: false, callId: null, at: 0 }))
       const from = startedAt ?? now
       const span = Math.max(1, now - from)
-      const nodes = Array.isArray(spine) ? spine : []
-      for (const node of nodes) {
-        const at = typeof node.at === 'number' ? node.at : null
-        if (at === null) continue
+      const slotOf = (at) => {
         const ratio = (at - from) / span
-        if (ratio < 0 || ratio > 1.0001) continue
-        const slot = Math.min(BUCKETS - 1, Math.max(0, Math.floor(ratio * BUCKETS)))
-        cells[slot] += 1
-        if (node.kind === 'fork') forks[slot] = true
+        if (!(ratio >= 0 && ratio <= 1.0001)) return -1
+        return Math.min(BUCKETS - 1, Math.max(0, Math.floor(ratio * BUCKETS)))
       }
-      const max = Math.max(1, ...cells)
-      return cells.map((count, index) => ({
-        count,
-        fork: forks[index],
+
+      for (const node of Array.isArray(spine) ? spine : []) {
+        if (typeof node?.at !== 'number') continue
+        const slot = slotOf(node.at)
+        if (slot < 0) continue
+        cells[slot].count += NOTE_WEIGHT
+        if (node.kind === 'fork') cells[slot].fork = true
+      }
+
+      for (const beat of Array.isArray(beats) ? beats : []) {
+        if (typeof beat?.t !== 'number') continue
+        const slot = slotOf(beat.t)
+        if (slot < 0) continue
+        cells[slot].count += BEAT_WEIGHT
+        // 慢放的落点：这一格里最近一次带 callId 的动作。
+        if (typeof beat.c === 'string' && beat.c !== '') {
+          cells[slot].callId = beat.c
+          cells[slot].at = beat.t
+        }
+      }
+
+      const max = Math.max(1, ...cells.map((cell) => cell.count))
+      return cells.map((cell) => ({
+        ...cell,
         // 一格都没有 → 极矮；有 → 按比例线性映射到 3..22px
-        height: count === 0 ? 2 : 3 + (count / max) * 19,
+        height: cell.count === 0 ? 2 : 3 + (cell.count / max) * 19,
         // 色阶：密度越高色相越暖，和高度一起编码同一件事（冗余是刻意的）
-        tone: count === 0 ? 'empty' : count === 1 ? 'l1' : count === 2 ? 'l2' : 'l3',
+        tone: cell.count === 0 ? 'empty' : cell.count <= 1 ? 'l1' : cell.count <= 3 ? 'l2' : 'l3',
       }))
     }
 
@@ -289,21 +329,32 @@ window.__ModuleLoader__.load({
      *
      * 顺序是新的在上：你回来时最想知道的永远是「刚才发生了什么」。
      * 最新一条带心跳，那是整屏唯一的持续动效。
+     *
+     * 「慢放」：带子里每一格、时间轴上每一条，只要能定位到一次真实的工具调用，
+     * 就点得动——点了切到「轨迹」并落到那一步。这是整个视图唯一的出口：
+     * 判决告诉你「要不要管」，慢放告诉你「到底发生了什么」。
      */
-    function Spine({ spine, startedAt, now }) {
-      const band = bandOf(spine, startedAt, now)
+    function Spine({ spine, beats, startedAt, now, openView }) {
+      const band = bandOf(spine, beats, startedAt, now)
       const all = Array.isArray(spine) ? spine.slice().reverse() : []
       const nodes = all.slice(0, 30)
+      const jump = typeof openView === 'function' ? openView : null
+      const beatsAt = Array.isArray(beats) ? beats.length : 0
 
       return h('div', { className: 'svo-spine' },
         // 密度带：整段的节奏。它回答的是「这段时间整体什么样」，
         // 下面的时间轴回答「具体有哪几个关键点」。
         h('div', { className: 'svo-band' },
-          band.map((cell, index) => h('i', {
-            key: index,
-            className: cell.fork ? 'fork' : cell.tone,
-            style: { height: cell.height + 'px' },
-          }))),
+          band.map((cell, index) => {
+            const target = jump !== null && cell.callId !== null
+            return h('i', {
+              key: index,
+              className: (cell.fork ? 'fork' : cell.tone) + (target ? ' can' : ''),
+              style: { height: cell.height + 'px' },
+              title: target ? `${clock(cell.at)} · 跳到这一步` : undefined,
+              onClick: target ? () => jump('trajectory', cell.callId) : undefined,
+            })
+          })),
 
         h('div', { className: 'svo-axis' },
           h('span', null, startedAt ? clock(startedAt) : ''),
@@ -312,37 +363,58 @@ window.__ModuleLoader__.load({
 
         nodes.length === 0
           ? h('div', { className: 'svo-empty' },
-            '还没有决策点。它会在语义边界处记下一句：这一步在做什么、为什么。')
+            beatsAt === 0
+              ? '还没有动作。它一开始动，这条带子就会长出来。'
+              : '决策点只在「参谋」模式下才会写下。这条带子记的是实际发生的动作——点一下就跳过去。')
           : h('div', { className: 'svo-chain' },
-            nodes.map((node, index) => h('div', {
-              key: String(node.seq ?? index),
-              className: 'svo-node ' + (node.kind ?? 'mile') + (index === 0 ? ' fresh' : ''),
-            },
-            h('span', { className: 'k' }, node.at ? clock(node.at) : '—'),
-            h('span', { className: 'g' }, h('b', null)),
-            h('span', { className: 't' },
-              // 岔路与低置信带类型标签——它们是"需要你注意"的两种节点，
-              // 只靠圆点颜色区分太弱。
-              node.kind === 'fork'
-                ? h('span', { className: 'tag fork' }, '岔路')
-                : node.kind === 'dim'
-                  ? h('span', { className: 'tag dim' }, '不确定')
-                  : null,
-              node.text,
-              node.fork
-                ? h('span', { className: 's' },
-                  `选：${node.fork.chosen}　`,
-                  h('span', { className: 'x' }, `弃：${node.fork.alternative}`))
-                : node.because
-                  ? h('span', { className: 's' }, node.because)
-                  : null)))))
+            nodes.map((node, index) => {
+              const target = jump !== null && typeof node.callId === 'string'
+              return h('div', {
+                key: String(node.seq ?? index),
+                className: 'svo-node ' + (node.kind ?? 'mile')
+                  + (index === 0 ? ' fresh' : '')
+                  + (target ? ' can' : ''),
+                ...(target ? {
+                  role: 'button',
+                  tabIndex: 0,
+                  title: '跳到轨迹的这一步',
+                  onClick: () => jump('trajectory', node.callId),
+                  onKeyDown: (event) => {
+                    if (event.key !== 'Enter' && event.key !== ' ') return
+                    event.preventDefault()
+                    jump('trajectory', node.callId)
+                  },
+                } : {}),
+              },
+              h('span', { className: 'k' }, node.at ? clock(node.at) : '—'),
+              h('span', { className: 'g' }, h('b', null)),
+              h('span', { className: 't' },
+                // 岔路与低置信带类型标签——它们是"需要你注意"的两种节点，
+                // 只靠圆点颜色区分太弱。
+                node.kind === 'fork'
+                  ? h('span', { className: 'tag fork' }, '岔路')
+                  : node.kind === 'dim'
+                    ? h('span', { className: 'tag dim' }, '不确定')
+                    : null,
+                node.text,
+                node.fork
+                  ? h('span', { className: 's' },
+                    `选：${node.fork.chosen}　`,
+                    h('span', { className: 'x' }, `弃：${node.fork.alternative}`))
+                  : node.because
+                    ? h('span', { className: 's' }, node.because)
+                    : null),
+              target ? h('span', { className: 'go' }, '↗') : null)
+            }))
+      )
     }
 
     // ── 主视图 ──────────────────────────────────────────────────────────────
 
-    function View({ sessionId, call }) {
+    function View({ sessionId, call, openView }) {
       const [view, setView] = React.useState(null)
-      const [failed, setFailed] = React.useState(false)
+      /** null = 没失败；'transport' = 真的没接通；'no-session' = 这个会话还没载入 */
+      const [failed, setFailed] = React.useState(null)
       const [busy, setBusy] = React.useState(false)
       /** 'ask' = 首次引导；'free' = 纯规则；'smart' = 开了旁路模型 */
       const [mode, setMode] = React.useState(null)
@@ -357,13 +429,13 @@ window.__ModuleLoader__.load({
             const next = await call('snapshot', sessionId ? { sessionId } : {})
             if (!live) return
             setView(next)
-            setFailed(false)
+            setFailed(null)
             // 异常时刷快一点，让人看见它自己恢复；平稳时省电。
             const abnormal = next?.verdict?.state !== 'running' || next?.verdict?.state === 'waiting'
             interval = abnormal ? 1200 : 2500
-          } catch {
+          } catch (error) {
             if (!live) return
-            setFailed(true)
+            setFailed(error?.code === 'no-session' ? 'no-session' : 'transport')
             interval = 5000
           }
           timer = setTimeout(tick, interval)
@@ -403,10 +475,13 @@ window.__ModuleLoader__.load({
           .finally(() => setBusy(false))
       }
 
-      if (failed && view === null) {
+      if (failed !== null && view === null) {
         return h('div', { className: 'svo-root' },
           h('div', { className: 'svo-col' },
-            h('div', { className: 'svo-idle' }, '观察未接通。这不影响会话本身。')))
+            h('div', { className: 'svo-idle' },
+              failed === 'no-session'
+                ? '这个会话还没载入，换进来一下就好。'
+                : '观察未接通。这不影响会话本身。')))
       }
       if (view === null) {
         // 加载态不转圈、不闪——空着就是最准确的表达。
@@ -470,9 +545,15 @@ window.__ModuleLoader__.load({
                 : null),
 
           // ④ 脊
-          cold && (view.spine?.length ?? 0) === 0
+          cold && (view.spine?.length ?? 0) === 0 && (view.beats?.length ?? 0) === 0
             ? null
-            : h(Spine, { spine: view.spine, startedAt: view.startedAt ?? (view.at - view.totalMs), now: view.at }),
+            : h(Spine, {
+              spine: view.spine,
+              beats: view.beats,
+              startedAt: view.startedAt ?? (view.at - view.totalMs),
+              now: view.at,
+              openView,
+            }),
 
           // 首次引导：一个安静的选择，不是设置页
           mode === 'ask'
@@ -532,6 +613,16 @@ window.__ModuleLoader__.load({
       }, View))
     }
 
-    return { inject, apply }
+    return {
+      inject,
+      apply,
+      /**
+       * 纯函数出口，只给测试用。
+       *
+       * 密度带是「不读数字也能分辨两种病」的那条带子，它算错不会抛错，只会
+       * 安静地画错——这种 bug 只能靠单测钉住，靠眼睛是看不出来的。
+       */
+      __internals: { bandOf, BUCKETS },
+    }
   },
 })

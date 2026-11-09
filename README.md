@@ -27,7 +27,7 @@ So this is not a summarizer. It is an **annunciator**: it stays silent while the
 Healthy:
 
 ```
-   在跑 · 14 分钟
+   运行中 · 14 分钟
 
    ▏▏▎▏▎▎▏▏▎▏▏▎▎▏▏▏▎▏▎      ← density band: thickness = activity
    07:31                07:45
@@ -36,12 +36,24 @@ Healthy:
 Stuck:
 
 ```
-   卡住 · 6 分钟
+   停滞 · 6 分钟
 
    6 分钟没有新进展。
 ```
 
 (The UI ships in Chinese; the strings are a single object at the top of `client.js` if you want to translate it.)
+
+---
+
+## Design
+
+The next-generation layout is in [`design/`](design/) — a single-file prototype, light and dark, built on tokens measured off the UniFi Network console (brand blue `#006eff`, 4/8/16 radius, 9/11/13/15 type, 7% hairlines, 20×20 icon grid).
+
+![design](design/light.png)
+
+It merges the two existing surfaces into one screen: the decision spine on the left, the statistics panel on the right, cross-linked — click a turn's stats, the spine jumps to that turn. Idle gaps are folded onto an effective-time axis, so a 13-hour overnight pause costs one dashed line instead of two-thirds of the chart.
+
+The prototype is not wired into `client.js` yet; it exists so the direction is fixed before the port.
 
 ---
 
@@ -211,6 +223,8 @@ That took out 20 historical sessions on 2026-11-06 before it was understood. Sin
 
 ## Architecture
 
+`lib/web-rpc.js` is the fallback transport: it mounts `/session-observer` on the host's `webServer`, verifies the request the same way `connection.requestRejection` does, and answers in the Connection wire format.
+
 ```
 session/event  (post-commit, fire-and-forget)
         │
@@ -283,7 +297,8 @@ for (const event of events) {
 
 | version | contents | status |
 |---|---|---|
-| **0.3.1** | verdict view: three-layer stuck detection, density band, decision spine | this release |
+| **0.4.2** | transport: fall back to a self-mounted `webServer` route when native RPC throws, so CLI and desktop both connect; events folded into `beats`; plain-language verdicts | this release |
+| 0.3.1 | verdict view: three-layer stuck detection, density band, decision spine | released |
 | v1 | promote the fold into a real `dsh-session-projection` unit so the client reads the projection instead of polling RPC | planned |
 | v2 | "slow-motion": click a decision point to jump to that seq in the trajectory view | planned |
 | v3 | finer attribution: capacity / context / tool / task difficulty | planned |
@@ -307,10 +322,10 @@ Verified on a real DSH instance and a real Chromium: the plugin resolves in the 
 
 | host | status |
 |---|---|
-| DSH desktop app (`dsh-client-connection` 0.2.x) | ✅ works — verdict, band, spine, sidecar notes |
-| CLI `dsh web` (`dsh-client-connection` 0.1.7-rc.1) | ⚠️ the view mounts, but the custom RPC channel fails to register: `rpc.handle()` resolves `owner.webServer` through a tracker context that cannot see it on that build, so the view reports that it could not connect |
+| DSH desktop app (`dsh-client-connection` 0.2.x) | ✅ works — native RPC channel |
+| CLI `dsh web` (`dsh-client-connection` 0.1.7-rc.1) | ✅ works — self-mounted route |
 
-The second row is a host-version incompatibility, not a data problem; the development branch fixes it by mounting the route directly on `webServer` when the native path throws.
+On the CLI build, `ctx.connection.rpc.handle()` throws `cannot get property "webServer" without inject`. The plugin tries the native channel first and falls back to mounting a prefix route (`/session-observer`) on `webServer` itself, replicating the same wire format and the same rejection check. Both paths are covered by the test suite.
 
 Known boundaries: the tab only appears in a session that already has messages (host behaviour for blank sessions), and attribution does not yet distinguish capacity from context exhaustion.
 
