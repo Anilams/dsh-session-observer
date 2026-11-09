@@ -105,8 +105,6 @@ test('视图组件在首帧（没有数据时）渲染出一个元素而不抛�
   // 平稳态的留白是设计，不是没画完。
   assert.equal(outer.type, 'div')
   assert.equal(outer.props.className, 'svo-root')
-  // createElement 把子节点收成数组，取第一个。
-  const [inner] = outer.props.children
-  assert.equal(inner.type, 'div')
-  assert.equal(inner.props.className, 'svo-col')
+  // 空壳就是空的：不转圈、不骨架、不闪。
+  assert.deepEqual(outer.props.children ?? [], [])
 })

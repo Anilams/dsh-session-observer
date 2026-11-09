@@ -1,0 +1,46 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<style>
+  html,body{height:100%;margin:0;background:#fff}
+  #host{height:100%;display:flex;flex-direction:column}
+  :root{--dsw-alias-label-primary:#212327;--dsw-alias-label-secondary:#50565e;--dsw-alias-label-tertiary:#676f79;
+    --dsw-alias-border-l1:rgba(33,35,39,.07);--dsw-alias-border-l3:rgba(33,35,39,.2);
+    --dsw-alias-bg-base:#fff;--dsw-alias-bg-layer-2:#f4f5f6;--dsw-alias-bg-hover:rgba(33,35,39,.05);
+    --dsw-alias-brand-primary:#006eff;--ds-ease-in-out:cubic-bezier(.16,1,.3,1);
+    --dsw-font-xs-13:13px/20px Inter,system-ui,sans-serif;--dsw-font-mono:ui-monospace,Menlo,monospace}
+  .dark{--dsw-alias-label-primary:#f9fafa;--dsw-alias-label-secondary:#c2c8d4;--dsw-alias-label-tertiary:#8b93a7;
+    --dsw-alias-border-l1:rgba(249,250,250,.1);--dsw-alias-border-l3:rgba(249,250,250,.24);
+    --dsw-alias-bg-base:#151725;--dsw-alias-bg-layer-2:#1b1e2e;--dsw-alias-bg-hover:rgba(249,250,250,.06);
+    --dsw-alias-brand-primary:#4797ff}
+</style></head>
+<body><div id="host"></div>
+<script src="./node_modules/react/umd/react.development.js"></script>
+<script src="./node_modules/react-dom/umd/react-dom.development.js"></script>
+<script>try{localStorage.setItem('dsh-session-observer/mode','free')}catch(e){}
+if (location.hash === '#dark') document.documentElement.classList.add('dark')</script>
+<script type="module">
+import { snapshot } from './fixture.mjs'
+
+const React = window.React
+let registered = null
+window.__ModuleLoader__ = { load: ({ factory }) => { window.__mod = factory((name) => name === 'react' ? React : null) } }
+
+await import('../../client.js')
+const mod = window.__mod
+const ctx = { slots: { inject: (_, fn) => fn(), register: (options, component) => { registered = { options, component } } } }
+mod.apply(ctx)
+const props = registered.options.inject('session-demo')
+// 快照：直接把 RPC 的返回塞进 state 的最简办法——覆盖 call，让首次 tick 就拿到数据
+props.call = async () => snapshot
+window.__React = React
+window.__component = registered.component
+window.__props = props
+window.__ready = true
+</script>
+<script type="module">
+// 二次挂载：等模块装载完再 render
+const wait = () => new Promise((r) => setTimeout(r, 120))
+await wait()
+const { createRoot } = window.ReactDOM
+const root = createRoot(document.getElementById('host'))
+root.render(window.React.createElement(window.__component, window.__props))
+</script></body></html>

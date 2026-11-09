@@ -47,13 +47,16 @@ Stuck:
 
 ## Design
 
-The next-generation layout is in [`design/`](design/) — a single-file prototype, light and dark, built on tokens measured off the UniFi Network console (brand blue `#006eff`, 4/8/16 radius, 9/11/13/15 type, 7% hairlines, 20×20 icon grid).
+The view is one screen, two columns: the decision spine on the left, the statistics panel on the right, cross-linked — click a turn's tab and both the spine and the numbers follow.
 
-![design](design/light.png)
+![the observer view](dev/harness/light.png)
 
-It merges the two existing surfaces into one screen: the decision spine on the left, the statistics panel on the right, cross-linked — click a turn's stats, the spine jumps to that turn. Idle gaps are folded onto an effective-time axis, so a 13-hour overnight pause costs one dashed line instead of two-thirds of the chart.
+- **Turn sections**, not a wall of events: each turn is a section with its own header, calls, failures and forks.
+- **Forks are drawn as two roads**: the chosen one is filled, the abandoned one is struck through. That is the whole point of the spine — you can see what was *not* taken.
+- **Idle time is folded**: a 13-hour overnight pause costs one dashed line, not two-thirds of the chart.
+- Layout tokens (4/8 radius, 9/11/13/15 type, 7% hairlines, 20×20 icon grid) were measured off the UniFi Network console; colour follows the host's `--dsw-*` semantic tokens so dark mode needs no second stylesheet.
 
-The prototype is not wired into `client.js` yet; it exists so the direction is fixed before the port.
+The static prototype that fixed this direction is kept in [`design/`](design/); [`dev/harness/`](dev/harness/) renders the real component without booting DSH.
 
 ---
 
@@ -297,7 +300,8 @@ for (const event of events) {
 
 | version | contents | status |
 |---|---|---|
-| **0.4.2** | transport: fall back to a self-mounted `webServer` route when native RPC throws, so CLI and desktop both connect; events folded into `beats`; plain-language verdicts | this release |
+| **0.5.0** | the v9 layout is now the real view: turn sections, forked roads, side panel, host-token theming; host emits `tool_mix` / `turn_stats` / per-node `turn` | this release |
+| 0.4.2 | transport: fall back to a self-mounted `webServer` route when native RPC throws, so CLI and desktop both connect; events folded into `beats`; plain-language verdicts | this release |
 | 0.3.1 | verdict view: three-layer stuck detection, density band, decision spine | released |
 | v1 | promote the fold into a real `dsh-session-projection` unit so the client reads the projection instead of polling RPC | planned |
 | v2 | "slow-motion": click a decision point to jump to that seq in the trajectory view | planned |

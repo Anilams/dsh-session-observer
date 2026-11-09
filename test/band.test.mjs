@@ -108,7 +108,8 @@ test('格子高度按密度归一，且空白格永远最矮', async () => {
   const band = bandOf([], [...busy, { t: at(5), k: 'tool', c: 'x' }], T0, at(10))
 
   const tallest = Math.max(...band.map((cell) => cell.height))
-  assert.equal(tallest, 22)
+  // 节奏条在 v9 版式里长到 48px（原来 22），归一化后的最高格就是它。
+  assert.equal(tallest, 48)
   assert.equal(band.filter((cell) => cell.count === 0)[0].height, 2)
 })
 
